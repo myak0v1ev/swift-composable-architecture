@@ -1,5 +1,4 @@
 import AuthenticationClient
-import Combine
 import ComposableArchitecture
 import TwoFactorCore
 import XCTest
@@ -9,23 +8,17 @@ import XCTest
 @MainActor
 final class TwoFactorSwiftUITests: XCTestCase {
   func testFlow_Success() async {
-    var authenticationClient = AuthenticationClient.unimplemented
-    authenticationClient.twoFactor = { _ in
-      AuthenticationResponse(token: "deadbeefdeadbeef", twoFactorRequired: false)
-    }
-
     let store = TestStore(
-      initialState: TwoFactorState(token: "deadbeefdeadbeef"),
-      reducer: twoFactorReducer,
-      environment: TwoFactorEnvironment(
-        authenticationClient: authenticationClient
-      )
-    )
-    .scope(state: TwoFactorView.ViewState.init, action: TwoFactorAction.init)
-
-    store.environment.authenticationClient.twoFactor = { _ in
-      AuthenticationResponse(token: "deadbeefdeadbeef", twoFactorRequired: false)
+      initialState: TwoFactor.State(token: "deadbeefdeadbeef"),
+      reducer: TwoFactor(),
+      observe: TwoFactorView.ViewState.init,
+      send: TwoFactor.Action.init
+    ) {
+      $0.authenticationClient.twoFactor = { _ in
+        AuthenticationResponse(token: "deadbeefdeadbeef", twoFactorRequired: false)
+      }
     }
+
     await store.send(.codeChanged("1")) {
       $0.code = "1"
     }
@@ -56,17 +49,16 @@ final class TwoFactorSwiftUITests: XCTestCase {
   }
 
   func testFlow_Failure() async {
-    var authenticationClient = AuthenticationClient.unimplemented
-    authenticationClient.twoFactor = { _ in throw AuthenticationError.invalidTwoFactor }
-
     let store = TestStore(
-      initialState: TwoFactorState(token: "deadbeefdeadbeef"),
-      reducer: twoFactorReducer,
-      environment: TwoFactorEnvironment(
-        authenticationClient: authenticationClient
-      )
-    )
-    .scope(state: TwoFactorView.ViewState.init, action: TwoFactorAction.init)
+      initialState: TwoFactor.State(token: "deadbeefdeadbeef"),
+      reducer: TwoFactor(),
+      observe: TwoFactorView.ViewState.init,
+      send: TwoFactor.Action.init
+    ) {
+      $0.authenticationClient.twoFactor = { _ in
+        throw AuthenticationError.invalidTwoFactor
+      }
+    }
 
     await store.send(.codeChanged("1234")) {
       $0.code = "1234"
@@ -77,14 +69,16 @@ final class TwoFactorSwiftUITests: XCTestCase {
       $0.isFormDisabled = true
     }
     await store.receive(.twoFactorResponse(.failure(AuthenticationError.invalidTwoFactor))) {
-      $0.alert = AlertState(
-        title: TextState(AuthenticationError.invalidTwoFactor.localizedDescription)
-      )
+      $0.alert = AlertState {
+        TextState(AuthenticationError.invalidTwoFactor.localizedDescription)
+      }
       $0.isActivityIndicatorVisible = false
       $0.isFormDisabled = false
     }
     await store.send(.alertDismissed) {
       $0.alert = nil
     }
+
+    await store.finish()
   }
 }

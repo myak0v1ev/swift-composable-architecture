@@ -9,13 +9,13 @@ struct TestApp: App {
 
   let store = Store(
     initialState: 0,
-    reducer: Reducer<Int, Void, Void> { state, _, _ in
+    reducer: Reduce<Int, Void> { state, _ in
       state += 1
       return .none
-    },
-    environment: ()
+    }
   )
 
+  @available(*, deprecated)
   var body: some Scene {
     WithViewStore(self.store) { viewStore in
       WindowGroup {
@@ -26,6 +26,7 @@ struct TestApp: App {
   }
 
   #if os(iOS) || os(macOS)
+    @available(*, deprecated)
     var commands: some Scene {
       self.body.commands {
         WithViewStore(self.store) { viewStore in
@@ -39,11 +40,12 @@ struct TestApp: App {
     }
   #endif
 
+  @available(*, deprecated)
   @ViewBuilder
   func checkToolbar() -> some View {
     Color.clear
       .toolbar {
-        WithViewStore(store) { viewStore in
+        WithViewStore(self.store) { viewStore in
           ToolbarItem {
             Button(action: { viewStore.send(()) }, label: { Text("Increment") })
           }
@@ -51,12 +53,13 @@ struct TestApp: App {
       }
   }
 
+  @available(*, deprecated)
   @ViewBuilder
   func checkAccessibilityRotor() -> some View {
     if #available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, *) {
       Color.clear
         .accessibilityRotor("Rotor") {
-          WithViewStore(store) { viewStore in
+          WithViewStore(self.store) { viewStore in
             AccessibilityRotorEntry("Value: \(viewStore.state)", 0, in: namespace)
           }
         }

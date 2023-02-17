@@ -49,21 +49,24 @@ public struct IfLetStore<State, Action, Content: View>: View {
   public init<IfContent, ElseContent>(
     _ store: Store<State?, Action>,
     @ViewBuilder then ifContent: @escaping (Store<State, Action>) -> IfContent,
-    @ViewBuilder else elseContent: @escaping () -> ElseContent
+    @ViewBuilder else elseContent: () -> ElseContent
   ) where Content == _ConditionalContent<IfContent, ElseContent> {
     self.store = store
+    let elseContent = elseContent()
     self.content = { viewStore in
       if var state = viewStore.state {
         return ViewBuilder.buildEither(
           first: ifContent(
-            store.scope {
-              state = $0 ?? state
-              return state
-            }
+            store
+              .filter { state, _ in state == nil ? !BindingLocal.isActive : true }
+              .scope {
+                state = $0 ?? state
+                return state
+              }
           )
         )
       } else {
-        return ViewBuilder.buildEither(second: elseContent())
+        return ViewBuilder.buildEither(second: elseContent)
       }
     }
   }
@@ -83,10 +86,12 @@ public struct IfLetStore<State, Action, Content: View>: View {
     self.content = { viewStore in
       if var state = viewStore.state {
         return ifContent(
-          store.scope {
-            state = $0 ?? state
-            return state
-          }
+          store
+            .filter { state, _ in state == nil ? !BindingLocal.isActive : true }
+            .scope {
+              state = $0 ?? state
+              return state
+            }
         )
       } else {
         return nil
@@ -97,6 +102,7 @@ public struct IfLetStore<State, Action, Content: View>: View {
   public var body: some View {
     WithViewStore(
       self.store,
+      observe: { $0 },
       removeDuplicates: { ($0 != nil) == ($1 != nil) },
       content: self.content
     )

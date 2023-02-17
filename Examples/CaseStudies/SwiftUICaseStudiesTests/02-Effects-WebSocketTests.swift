@@ -1,4 +1,3 @@
-import Combine
 import ComposableArchitecture
 import XCTest
 
@@ -10,20 +9,16 @@ final class WebSocketTests: XCTestCase {
     let actions = AsyncStream<WebSocketClient.Action>.streamWithContinuation()
     let messages = AsyncStream<TaskResult<WebSocketClient.Message>>.streamWithContinuation()
 
-    var webSocket = WebSocketClient.unimplemented
-    webSocket.open = { _, _, _ in actions.stream }
-    webSocket.send = { _, _ in }
-    webSocket.receive = { _ in messages.stream }
-    webSocket.sendPing = { _ in try await Task.never() }
-
     let store = TestStore(
-      initialState: WebSocketState(),
-      reducer: webSocketReducer,
-      environment: WebSocketEnvironment(
-        mainQueue: .immediate,
-        webSocket: webSocket
-      )
-    )
+      initialState: WebSocket.State(),
+      reducer: WebSocket()
+    ) {
+      $0.continuousClock = ImmediateClock()
+      $0.webSocket.open = { _, _, _ in actions.stream }
+      $0.webSocket.receive = { _ in messages.stream }
+      $0.webSocket.send = { _, _ in }
+      $0.webSocket.sendPing = { _ in try await Task.never() }
+    }
 
     // Connect to the socket
     await store.send(.connectButtonTapped) {
@@ -59,29 +54,26 @@ final class WebSocketTests: XCTestCase {
     await store.send(.connectButtonTapped) {
       $0.connectivityState = .disconnected
     }
+    await store.finish()
   }
 
   func testWebSocketSendFailure() async {
     let actions = AsyncStream<WebSocketClient.Action>.streamWithContinuation()
     let messages = AsyncStream<TaskResult<WebSocketClient.Message>>.streamWithContinuation()
 
-    var webSocket = WebSocketClient.unimplemented
-    webSocket.open = { _, _, _ in actions.stream }
-    webSocket.receive = { _ in messages.stream }
-    webSocket.send = { _, _ in
-      struct SendFailure: Error, Equatable {}
-      throw SendFailure()
-    }
-    webSocket.sendPing = { _ in try await Task.never() }
-
     let store = TestStore(
-      initialState: WebSocketState(),
-      reducer: webSocketReducer,
-      environment: WebSocketEnvironment(
-        mainQueue: .immediate,
-        webSocket: webSocket
-      )
-    )
+      initialState: WebSocket.State(),
+      reducer: WebSocket()
+    ) {
+      $0.continuousClock = ImmediateClock()
+      $0.webSocket.open = { _, _, _ in actions.stream }
+      $0.webSocket.receive = { _ in messages.stream }
+      $0.webSocket.send = { _, _ in
+        struct SendFailure: Error, Equatable {}
+        throw SendFailure()
+      }
+      $0.webSocket.sendPing = { _ in try await Task.never() }
+    }
 
     // Connect to the socket
     await store.send(.connectButtonTapped) {
@@ -100,33 +92,32 @@ final class WebSocketTests: XCTestCase {
       $0.messageToSend = ""
     }
     await store.receive(.sendResponse(didSucceed: false)) {
-      $0.alert = AlertState(title: TextState("Could not send socket message. Try again."))
+      $0.alert = AlertState {
+        TextState("Could not send socket message. Connect to the server first, and try again.")
+      }
     }
 
     // Disconnect from the socket
     await store.send(.connectButtonTapped) {
       $0.connectivityState = .disconnected
     }
+    await store.finish()
   }
 
   func testWebSocketPings() async {
     let actions = AsyncStream<WebSocketClient.Action>.streamWithContinuation()
-    let pingsCount = ActorIsolated(0)
+    let clock = TestClock()
+    var pingsCount = 0
 
-    var webSocket = WebSocketClient.unimplemented
-    webSocket.open = { _, _, _ in actions.stream }
-    webSocket.receive = { _ in try await Task.never() }
-    webSocket.sendPing = { _ in await pingsCount.withValue { $0 += 1 } }
-
-    let scheduler = DispatchQueue.test
     let store = TestStore(
-      initialState: WebSocketState(),
-      reducer: webSocketReducer,
-      environment: WebSocketEnvironment(
-        mainQueue: scheduler.eraseToAnyScheduler(),
-        webSocket: webSocket
-      )
-    )
+      initialState: WebSocket.State(),
+      reducer: WebSocket()
+    ) {
+      $0.continuousClock = clock
+      $0.webSocket.open = { _, _, _ in actions.stream }
+      $0.webSocket.receive = { _ in try await Task.never() }
+      $0.webSocket.sendPing = { @MainActor _ in pingsCount += 1 }
+    }
 
     // Connect to the socket
     await store.send(.connectButtonTapped) {
@@ -138,9 +129,9 @@ final class WebSocketTests: XCTestCase {
     }
 
     // Wait for ping
-    await pingsCount.withValue { XCTAssertEqual($0, 0) }
-    await scheduler.advance(by: .seconds(10))
-    await pingsCount.withValue { XCTAssertEqual($0, 1) }
+    XCTAssertEqual(pingsCount, 0)
+    await clock.advance(by: .seconds(10))
+    XCTAssertEqual(pingsCount, 1)
 
     // Disconnect from the socket
     await store.send(.connectButtonTapped) {
@@ -151,19 +142,15 @@ final class WebSocketTests: XCTestCase {
   func testWebSocketConnectError() async {
     let actions = AsyncStream<WebSocketClient.Action>.streamWithContinuation()
 
-    var webSocket = WebSocketClient.unimplemented
-    webSocket.open = { _, _, _ in actions.stream }
-    webSocket.receive = { _ in try await Task.never() }
-    webSocket.sendPing = { _ in try await Task.never() }
-
     let store = TestStore(
-      initialState: WebSocketState(),
-      reducer: webSocketReducer,
-      environment: WebSocketEnvironment(
-        mainQueue: .immediate,
-        webSocket: webSocket
-      )
-    )
+      initialState: WebSocket.State(),
+      reducer: WebSocket()
+    ) {
+      $0.continuousClock = ImmediateClock()
+      $0.webSocket.open = { _, _, _ in actions.stream }
+      $0.webSocket.receive = { _ in try await Task.never() }
+      $0.webSocket.sendPing = { _ in try await Task.never() }
+    }
 
     // Attempt to connect to the socket
     await store.send(.connectButtonTapped) {

@@ -7,14 +7,14 @@ import XCTest
 @MainActor
 final class GameSwiftUITests: XCTestCase {
   let store = TestStore(
-    initialState: GameState(
+    initialState: Game.State(
       oPlayerName: "Blob Jr.",
       xPlayerName: "Blob Sr."
     ),
-    reducer: gameReducer,
-    environment: GameEnvironment()
+    reducer: Game(),
+    observe: GameView.ViewState.init,
+    send: { $0 }
   )
-  .scope(state: GameView.ViewState.init)
 
   func testFlow_Winner_Quit() async {
     await self.store.send(.cellTapped(row: 0, column: 0)) {
@@ -82,7 +82,7 @@ final class GameSwiftUITests: XCTestCase {
       $0.title = "Tied game!"
     }
     await self.store.send(.playAgainButtonTapped) {
-      $0 = GameView.ViewState(state: GameState(oPlayerName: "Blob Jr.", xPlayerName: "Blob Sr."))
+      $0 = GameView.ViewState(state: Game.State(oPlayerName: "Blob Jr.", xPlayerName: "Blob Sr."))
     }
   }
 }

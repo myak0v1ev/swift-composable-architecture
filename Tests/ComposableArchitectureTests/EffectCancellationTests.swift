@@ -1,10 +1,9 @@
 import Combine
+@_spi(Internals) import ComposableArchitecture
 import XCTest
 
-@testable import ComposableArchitecture
-
 final class EffectCancellationTests: XCTestCase {
-  struct CancelToken: Hashable {}
+  struct CancelID: Hashable {}
   var cancellables: Set<AnyCancellable> = []
 
   override func tearDown() {
@@ -16,51 +15,51 @@ final class EffectCancellationTests: XCTestCase {
     var values: [Int] = []
 
     let subject = PassthroughSubject<Int, Never>()
-    let effect = Effect(subject)
-      .cancellable(id: CancelToken())
+    let effect = EffectPublisher(subject)
+      .cancellable(id: CancelID())
 
     effect
       .sink { values.append($0) }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(values, [])
+    XCTAssertEqual(values, [])
     subject.send(1)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
     subject.send(2)
-    XCTAssertNoDifference(values, [1, 2])
+    XCTAssertEqual(values, [1, 2])
 
-    Effect<Never, Never>.cancel(id: CancelToken())
+    EffectTask<Never>.cancel(id: CancelID())
       .sink { _ in }
       .store(in: &self.cancellables)
 
     subject.send(3)
-    XCTAssertNoDifference(values, [1, 2])
+    XCTAssertEqual(values, [1, 2])
   }
 
   func testCancelInFlight() {
     var values: [Int] = []
 
     let subject = PassthroughSubject<Int, Never>()
-    Effect(subject)
-      .cancellable(id: CancelToken(), cancelInFlight: true)
+    EffectPublisher(subject)
+      .cancellable(id: CancelID(), cancelInFlight: true)
       .sink { values.append($0) }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(values, [])
+    XCTAssertEqual(values, [])
     subject.send(1)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
     subject.send(2)
-    XCTAssertNoDifference(values, [1, 2])
+    XCTAssertEqual(values, [1, 2])
 
-    Effect(subject)
-      .cancellable(id: CancelToken(), cancelInFlight: true)
+    EffectPublisher(subject)
+      .cancellable(id: CancelID(), cancelInFlight: true)
       .sink { values.append($0) }
       .store(in: &self.cancellables)
 
     subject.send(3)
-    XCTAssertNoDifference(values, [1, 2, 3])
+    XCTAssertEqual(values, [1, 2, 3])
     subject.send(4)
-    XCTAssertNoDifference(values, [1, 2, 3, 4])
+    XCTAssertEqual(values, [1, 2, 3, 4])
   }
 
   func testCancellationAfterDelay() {
@@ -69,21 +68,20 @@ final class EffectCancellationTests: XCTestCase {
     Just(1)
       .delay(for: 0.15, scheduler: DispatchQueue.main)
       .eraseToEffect()
-      .cancellable(id: CancelToken())
+      .cancellable(id: CancelID())
       .sink { value = $0 }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(value, nil)
+    XCTAssertEqual(value, nil)
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-      Effect<Never, Never>.cancel(id: CancelToken())
+      EffectTask<Never>.cancel(id: CancelID())
         .sink { _ in }
         .store(in: &self.cancellables)
     }
 
-    _ = XCTWaiter.wait(for: [self.expectation(description: "")], timeout: 0.3)
-
-    XCTAssertNoDifference(value, nil)
+    _ = XCTWaiter.wait(for: [self.expectation(description: "")], timeout: 1)
+    XCTAssertEqual(value, nil)
   }
 
   func testCancellationAfterDelay_WithTestScheduler() {
@@ -93,94 +91,98 @@ final class EffectCancellationTests: XCTestCase {
     Just(1)
       .delay(for: 2, scheduler: mainQueue)
       .eraseToEffect()
-      .cancellable(id: CancelToken())
+      .cancellable(id: CancelID())
       .sink { value = $0 }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(value, nil)
+    XCTAssertEqual(value, nil)
 
     mainQueue.advance(by: 1)
-    Effect<Never, Never>.cancel(id: CancelToken())
+    EffectTask<Never>.cancel(id: CancelID())
       .sink { _ in }
       .store(in: &self.cancellables)
 
     mainQueue.run()
 
-    XCTAssertNoDifference(value, nil)
+    XCTAssertEqual(value, nil)
   }
 
   func testCancellablesCleanUp_OnComplete() {
+    let id = UUID()
+
     Just(1)
       .eraseToEffect()
-      .cancellable(id: 1)
+      .cancellable(id: id)
       .sink(receiveValue: { _ in })
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference([:], cancellationCancellables)
+    XCTAssertNil(_cancellationCancellables[_CancelToken(id: id)])
   }
 
   func testCancellablesCleanUp_OnCancel() {
+    let id = UUID()
+
     let mainQueue = DispatchQueue.test
     Just(1)
       .delay(for: 1, scheduler: mainQueue)
       .eraseToEffect()
-      .cancellable(id: 1)
+      .cancellable(id: id)
       .sink(receiveValue: { _ in })
       .store(in: &self.cancellables)
 
-    Effect<Int, Never>.cancel(id: 1)
+    EffectPublisher<Int, Never>.cancel(id: id)
       .sink(receiveValue: { _ in })
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference([:], cancellationCancellables)
+    XCTAssertNil(_cancellationCancellables[_CancelToken(id: id)])
   }
 
   func testDoubleCancellation() {
     var values: [Int] = []
 
     let subject = PassthroughSubject<Int, Never>()
-    let effect = Effect(subject)
-      .cancellable(id: CancelToken())
-      .cancellable(id: CancelToken())
+    let effect = EffectPublisher(subject)
+      .cancellable(id: CancelID())
+      .cancellable(id: CancelID())
 
     effect
       .sink { values.append($0) }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(values, [])
+    XCTAssertEqual(values, [])
     subject.send(1)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
 
-    Effect<Never, Never>.cancel(id: CancelToken())
+    EffectTask<Never>.cancel(id: CancelID())
       .sink { _ in }
       .store(in: &self.cancellables)
 
     subject.send(2)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
   }
 
   func testCompleteBeforeCancellation() {
     var values: [Int] = []
 
     let subject = PassthroughSubject<Int, Never>()
-    let effect = Effect(subject)
-      .cancellable(id: CancelToken())
+    let effect = EffectPublisher(subject)
+      .cancellable(id: CancelID())
 
     effect
       .sink { values.append($0) }
       .store(in: &self.cancellables)
 
     subject.send(1)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
 
     subject.send(completion: .finished)
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
 
-    Effect<Never, Never>.cancel(id: CancelToken())
+    EffectTask<Never>.cancel(id: CancelID())
       .sink { _ in }
       .store(in: &self.cancellables)
 
-    XCTAssertNoDifference(values, [1])
+    XCTAssertEqual(values, [1])
   }
 
   func testConcurrentCancels() {
@@ -193,12 +195,13 @@ final class EffectCancellationTests: XCTestCase {
       DispatchQueue.global(qos: .userInteractive),
       DispatchQueue.global(qos: .utility),
     ]
+    let ids = (1...10).map { _ in UUID() }
 
-    let effect = Effect.merge(
-      (1...1_000).map { idx -> Effect<Int, Never> in
-        let id = idx % 10
+    let effect = EffectPublisher.merge(
+      (1...1_000).map { idx -> EffectPublisher<Int, Never> in
+        let id = ids[idx % 10]
 
-        return Effect.merge(
+        return EffectPublisher.merge(
           Just(idx)
             .delay(
               for: .milliseconds(Int.random(in: 1...100)), scheduler: queues.randomElement()!
@@ -210,7 +213,7 @@ final class EffectCancellationTests: XCTestCase {
             .delay(
               for: .milliseconds(Int.random(in: 1...100)), scheduler: queues.randomElement()!
             )
-            .flatMap { Effect.cancel(id: id) }
+            .flatMap { EffectPublisher.cancel(id: id) }
             .eraseToEffect()
         )
       }
@@ -222,16 +225,23 @@ final class EffectCancellationTests: XCTestCase {
       .store(in: &self.cancellables)
     self.wait(for: [expectation], timeout: 999)
 
-    XCTAssertTrue(cancellationCancellables.isEmpty)
+    for id in ids {
+      XCTAssertNil(
+        _cancellationCancellables[_CancelToken(id: id)],
+        "cancellationCancellables should not contain id \(id)"
+      )
+    }
   }
 
   func testNestedCancels() {
+    let id = UUID()
+
     var effect = Empty<Void, Never>(completeImmediately: false)
       .eraseToEffect()
-      .cancellable(id: 1)
+      .cancellable(id: id)
 
-    for _ in 1 ... .random(in: 1...1_000) {
-      effect = effect.cancellable(id: 1)
+    for _ in 1...1_000 {
+      effect = effect.cancellable(id: id)
     }
 
     effect
@@ -240,7 +250,7 @@ final class EffectCancellationTests: XCTestCase {
 
     cancellables.removeAll()
 
-    XCTAssertNoDifference([:], cancellationCancellables)
+    XCTAssertNil(_cancellationCancellables[_CancelToken(id: id)])
   }
 
   func testSharedId() {
@@ -264,11 +274,11 @@ final class EffectCancellationTests: XCTestCase {
       .sink { expectedOutput.append($0) }
       .store(in: &cancellables)
 
-    XCTAssertNoDifference(expectedOutput, [])
+    XCTAssertEqual(expectedOutput, [])
     mainQueue.advance(by: 1)
-    XCTAssertNoDifference(expectedOutput, [1])
+    XCTAssertEqual(expectedOutput, [1])
     mainQueue.advance(by: 1)
-    XCTAssertNoDifference(expectedOutput, [1, 2])
+    XCTAssertEqual(expectedOutput, [1, 2])
   }
 
   func testImmediateCancellation() {
@@ -282,13 +292,13 @@ final class EffectCancellationTests: XCTestCase {
       .cancellable(id: "id")
       .sink { expectedOutput.append($0) }
 
-    XCTAssertNoDifference(expectedOutput, [])
+    XCTAssertEqual(expectedOutput, [])
     mainQueue.advance(by: 1)
-    XCTAssertNoDifference(expectedOutput, [])
+    XCTAssertEqual(expectedOutput, [])
   }
 
   func testNestedMergeCancellation() {
-    let effect = Effect<Int, Never>.merge(
+    let effect = EffectPublisher<Int, Never>.merge(
       (1...2).publisher
         .eraseToEffect()
         .cancellable(id: 1)
@@ -319,16 +329,16 @@ final class EffectCancellationTests: XCTestCase {
         .cancellable(id: id)
     }
 
-    Effect<AnyHashable, Never>.merge(effects)
+    EffectTask<AnyHashable>.merge(effects)
       .sink { output.append($0) }
       .store(in: &self.cancellables)
 
-    Effect<AnyHashable, Never>
+    EffectTask<AnyHashable>
       .cancel(ids: [A(), C()])
       .sink { _ in }
       .store(in: &self.cancellables)
 
     mainQueue.advance(by: 1)
-    XCTAssertNoDifference(output, [B()])
+    XCTAssertEqual(output, [B()])
   }
 }

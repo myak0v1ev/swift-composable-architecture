@@ -1,4 +1,3 @@
-import Combine
 import ComposableArchitecture
 import XCTest
 
@@ -8,20 +7,19 @@ import XCTest
 final class SharedStateTests: XCTestCase {
   func testTabRestoredOnReset() async {
     let store = TestStore(
-      initialState: SharedState(),
-      reducer: sharedStateReducer,
-      environment: ()
+      initialState: SharedState.State(),
+      reducer: SharedState()
     )
 
     await store.send(.selectTab(.profile)) {
       $0.currentTab = .profile
-      $0.profile = SharedState.ProfileState(
+      $0.profile = SharedState.Profile.State(
         currentTab: .profile, count: 0, maxCount: 0, minCount: 0, numberOfCounts: 0
       )
     }
     await store.send(.profile(.resetCounterButtonTapped)) {
       $0.currentTab = .counter
-      $0.profile = SharedState.ProfileState(
+      $0.profile = SharedState.Profile.State(
         currentTab: .counter, count: 0, maxCount: 0, minCount: 0, numberOfCounts: 0
       )
     }
@@ -29,20 +27,19 @@ final class SharedStateTests: XCTestCase {
 
   func testTabSelection() async {
     let store = TestStore(
-      initialState: SharedState(),
-      reducer: sharedStateReducer,
-      environment: ()
+      initialState: SharedState.State(),
+      reducer: SharedState()
     )
 
     await store.send(.selectTab(.profile)) {
       $0.currentTab = .profile
-      $0.profile = SharedState.ProfileState(
+      $0.profile = SharedState.Profile.State(
         currentTab: .profile, count: 0, maxCount: 0, minCount: 0, numberOfCounts: 0
       )
     }
     await store.send(.selectTab(.counter)) {
       $0.currentTab = .counter
-      $0.profile = SharedState.ProfileState(
+      $0.profile = SharedState.Profile.State(
         currentTab: .counter, count: 0, maxCount: 0, minCount: 0, numberOfCounts: 0
       )
     }
@@ -50,9 +47,8 @@ final class SharedStateTests: XCTestCase {
 
   func testSharedCounts() async {
     let store = TestStore(
-      initialState: SharedState(),
-      reducer: sharedStateReducer,
-      environment: ()
+      initialState: SharedState.State(),
+      reducer: SharedState()
     )
 
     await store.send(.counter(.incrementButtonTapped)) {
@@ -73,17 +69,16 @@ final class SharedStateTests: XCTestCase {
 
   func testIsPrimeWhenPrime() async {
     let store = TestStore(
-      initialState: SharedState.CounterState(
+      initialState: SharedState.Counter.State(
         alert: nil, count: 3, maxCount: 0, minCount: 0, numberOfCounts: 0
       ),
-      reducer: sharedStateCounterReducer,
-      environment: ()
+      reducer: SharedState.Counter()
     )
 
     await store.send(.isPrimeButtonTapped) {
-      $0.alert = AlertState(
-        title: TextState("👍 The number \($0.count) is prime!")
-      )
+      $0.alert = AlertState {
+        TextState("👍 The number 3 is prime!")
+      }
     }
     await store.send(.alertDismissed) {
       $0.alert = nil
@@ -92,17 +87,16 @@ final class SharedStateTests: XCTestCase {
 
   func testIsPrimeWhenNotPrime() async {
     let store = TestStore(
-      initialState: SharedState.CounterState(
+      initialState: SharedState.Counter.State(
         alert: nil, count: 6, maxCount: 0, minCount: 0, numberOfCounts: 0
       ),
-      reducer: sharedStateCounterReducer,
-      environment: ()
+      reducer: SharedState.Counter()
     )
 
     await store.send(.isPrimeButtonTapped) {
-      $0.alert = AlertState(
-        title: TextState("👎 The number \($0.count) is not prime :(")
-      )
+      $0.alert = AlertState {
+        TextState("👎 The number 6 is not prime :(")
+      }
     }
     await store.send(.alertDismissed) {
       $0.alert = nil

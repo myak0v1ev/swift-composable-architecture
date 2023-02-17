@@ -1,37 +1,57 @@
 import ComposableArchitecture
 import XCTest
 
+@MainActor
 final class BindingTests: XCTestCase {
-  func testNestedBindableState() {
-    struct State: Equatable {
-      @BindableState var nested = Nested()
+  #if swift(>=5.7)
+    func testNestedBindingState() {
+      struct BindingTest: ReducerProtocol {
+        struct State: Equatable {
+          @BindingState var nested = Nested()
 
-      struct Nested: Equatable {
-        var field = ""
+          struct Nested: Equatable {
+            var field = ""
+          }
+        }
+
+        enum Action: BindableAction, Equatable {
+          case binding(BindingAction<State>)
+        }
+
+        var body: some ReducerProtocol<State, Action> {
+          BindingReducer()
+          Reduce { state, action in
+            switch action {
+            case .binding(\.$nested.field):
+              state.nested.field += "!"
+              return .none
+            default:
+              return .none
+            }
+          }
+        }
       }
+
+      let store = Store(initialState: BindingTest.State(), reducer: BindingTest())
+
+      let viewStore = ViewStore(store, observe: { $0 })
+
+      viewStore.binding(\.$nested.field).wrappedValue = "Hello"
+
+      XCTAssertEqual(viewStore.state, .init(nested: .init(field: "Hello!")))
     }
+  #endif
 
-    enum Action: BindableAction, Equatable {
-      case binding(BindingAction<State>)
+  // NB: This crashes in Swift(<5.8) RELEASE when `BindingAction` holds directly onto an unboxed
+  //     `value: Any` existential
+  func testLayoutBug() {
+    enum Foo {
+      case bar(Baz)
     }
-
-    let reducer = Reducer<State, Action, ()> { state, action, _ in
-      switch action {
-      case .binding(\.$nested.field):
-        state.nested.field += "!"
-        return .none
-      default:
-        return .none
-      }
+    enum Baz {
+      case fizz(BindingAction<Void>)
+      case buzz(Bool)
     }
-    .binding()
-
-    let store = Store(initialState: .init(), reducer: reducer, environment: ())
-
-    let viewStore = ViewStore(store)
-
-    viewStore.binding(\.$nested.field).wrappedValue = "Hello"
-
-    XCTAssertNoDifference(viewStore.state, .init(nested: .init(field: "Hello!")))
+    _ = (/Foo.bar).extract(from: .bar(.buzz(true)))
   }
 }
